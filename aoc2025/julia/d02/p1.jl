@@ -1,6 +1,7 @@
 module AOC25_02
 
 using Transducers
+using Primes
 
 struct CommaSeperatedData
     filepath::String
@@ -71,8 +72,80 @@ function main_2(filename)
     #MapCat(split_by_numdigits) |> # e.g. 20:1500 -> [20:99, 100:999, 1000:1500]
     Cat() |>
     Filter(isinvalid_id_two) |>
-    #collect
     foldxt(+)
 end
+@assert main_2("d02/sample") |> isequal(4174379265)
+@assert main_2("d02/input") |> isequal(19058204438)
 
+# function ismultipleofany(n, fs)
+#     foldxl(|, Map(x->n % x == 0) ⨟ ReduceIf(identity), fs; init = false)
+# end
+# function sieve(sofar, x)
+#     ismultipleofany(x, sofar) ? (0, sofar) : (x, push!!(sofar, x))
+# end
+# function primesupto(n)
+#     prime_xf = ScanEmit(sieve, Int[]) ⨟ Filter(!iszero)
+#     foldxl(push!!, prime_xf, 2:n; init=Int[])
+# end
+
+@inline function mobius(n)
+    eachfactor(n) |>
+    Map(last) |>
+    ReduceIf(p->p>1) |>
+    Map() do x
+        x > 1 ? 0 : -1
+    end |>
+    foldxl(*; init=1)
 end
+
+divisorof(a) = x->iszero(mod(a, x))
+function _sum_invalid_ids_of_length(p)
+    p == 1 ? 0 :
+    2:p |> Filter(divisorof(p)) #|> Filter(!iszero ∘ mobius) |>
+    Map() do r
+        q = p ÷ r
+        pat2n = (10^p - 1) ÷ (1 - 10^q)
+        patterns = (10^(q-1)):(10^q - 1)
+        mobius(r) * sum(patterns) * pat2n
+    end |> foldxl(+)
+end
+
+@inline firstndigits(x, n) = x ÷ 10^(ndigits(x) - n) 
+@inline lastndigits(x, n) = x % 10^(n) 
+
+function sum_invalid_ids(rr::UnitRange)
+    p = ndigits(first(rr)) # must equal ndigits(last(r))
+    minrr = minimum(rr)
+    maxrr = maximum(rr)
+    p == 1 ? 0 : 
+    2:p |> Filter(divisorof(p)) |> Filter(!iszero ∘ mobius) |>
+    Map() do r
+        q = p ÷ r
+        pat2n = (10^p - 1) ÷ (10^q - 1)
+        patmin = let _s = firstndigits(minrr, q)
+            _s + ((_s * pat2n) < minrr)
+        end
+        patmax = let _s = firstndigits(maxrr, q)
+            _s - ((_s * pat2n) > maxrr)
+        end
+        patterns = patmin:patmax
+        -1 * mobius(r) * sum(patterns) * pat2n
+    end |> foldxl(+)
+end
+_fl(x) = first(x), last(x)
+function main_2fast(filename)
+    CommaSeperatedData(filename) |>
+    Map(x -> _fl(split(x, '-'; limit=2))) |> 
+    Map(x -> map(Base.Fix1(parse, Int), x)) |> 
+    collect |>
+    Map(splat(range)) |> 
+    MapCat(split_by_numdigits) |> # e.g. 20:1500 -> [20:99, 100:999, 1000:1500]
+    Map(sum_invalid_ids) |>
+    foldxl(+)
+end
+@assert main_2fast("d02/sample") |> isequal(4174379265)
+@assert main_2fast("d02/input") |> isequal(19058204438)
+end
+
+#@btime AOC25_02.main_2("d02/input")
+@btime AOC25_02.main_2fast("d02/input")
