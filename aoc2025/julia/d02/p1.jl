@@ -88,6 +88,17 @@ end
 #     foldxl(push!!, prime_xf, 2:n; init=Int[])
 # end
 
+# faster to precompute some things?
+# @generated function _exp10(x::Int)
+#     max_exp = ndigits(typemax(x)) - 1
+#     tenpows = ntuple(i->10^(i-1), max_exp + 1)
+#     quote
+#         x ∈ 0:$(max_exp) ? $(tenpows)[x+1] :
+#             error("_exp10 was called with x ∉ [0, ndigits(typemax(x)))")
+#         #throw(DomainError("_exp10(x::$($x)) was called with x ∉ [0, $($max_exp)]"))
+#     end
+# end
+
 @inline function mobius(n)
     eachfactor(n) |>
     Map(last) |>
