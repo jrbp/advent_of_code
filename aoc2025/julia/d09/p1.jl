@@ -30,6 +30,7 @@ function main_2(filename="d09/sample")
     vlines = sort(positions; by=first) |> PartitionBy(first) |> Map(copy) |> Map() do pts
         first(pts).x => (pts |> Map(last) |> foldxl(TeeRF(min, max)) |> splat(range))
         end |> collect
+    #println(vlines)
     allowed_x = miny:maxy |> Map() do yy
         bounding_lines = vlines |> Filter(r->yy ∈ last(r)) |> collect
         isempty(bounding_lines) ? (1:0) : bounding_lines |>
@@ -42,31 +43,38 @@ function main_2(filename="d09/sample")
     Iterators.product(eachindex(positions), eachindex(positions)) |>
         Filter(splat(<)) |>
         Map(x->getindex.(Ref(positions), x)) |>
+        # Filter() do (p1, p2)
+        #     # this is still wrong
+        #     xr = min(p1.x, p2.x):max(p1.x, p2.x)
+        #     yr = min(p1.y, p2.y):max(p1.y, p2.y)
+        #     _bl = vlines |> Filter(r->issubset(yr, last(r))) |> Map(first) |> collect
+        #     # println(p1, ", ", p2)
+        #     # println("    ", xr, ", ", yr, ", ", extrema(_bl))
+        #     # println("      ", issubset(xr, range(extrema(_bl)...)))
+        #     !isempty(_bl) && issubset(xr, range(extrema(_bl)...))
+        # end |>
+        # Filter() do (p1, p2)
+        #     # ~5x slower version of below, doesn't bother with early termination from corners
+        #     @view(allowed_x[min(p1.y, p2.y):max(p1.y, p2.y) .- miny .+ 1]) |> Map() do xr
+        #         issubset(min(p1.x, p2.x):max(p1.x, p2.x), xr)
+        #     end  |> ReduceIf(!identity) |> foldxl(&; init=true)
+        # end |>
         Filter() do (p1, p2)
-            delta = map(-, p2, p1)
-            s = sign(prod(delta))
-            @assert allowedpt(p1)
-            @assert allowedpt(p2)
+            s = sign(mapreduce(-, *, p2, p1))
             iszero(s) || begin
                 if s > 0
-                    tl, br = p1.x < p2.x ? (p1, p2) : (p2, p1)
-                    tr = (;x=br.x, y=tl.y)
-                    bl = (;x=tl.x, y=br.y)
-                    @assert tr == (;x=max(p1.x, p2.x), y=min(p1.y, p2.y))
-                    @assert bl == (;x=min(p1.x, p2.x), y=max(p1.y, p2.y))
+                    tr = (;x=max(p1.x, p2.x), y=min(p1.y, p2.y))
+                    bl = (;x=min(p1.x, p2.x), y=max(p1.y, p2.y))
                     allowedpt(tr) && allowedpt(bl) && begin
-                        allowed_x[(tr.y):(bl.y) .- miny .+ 1] |> Map() do xr
+                        @view(allowed_x[(tr.y):(bl.y) .- miny .+ 1]) |> Map() do xr
                             issubset((bl.x):(tr.x), xr)
                         end |> foldxl(&; init=true)
                     end
                 else
-                    tr, bl = p1.x > p2.x ? (p1, p2) : (p2, p1)
-                    br = (;x=tr.x, y=bl.y)
-                    tl = (;x=bl.x, y=tr.y)
-                    @assert br == (;x=max(p1.x, p2.x), y=max(p1.y, p2.y)) "s=$(s), p1=$(p1), p2=$(p2), br=$(br)"
-                    @assert tl == (;x=min(p1.x, p2.x), y=min(p1.y, p2.y))
+                    br = (;x=max(p1.x, p2.x), y=max(p1.y, p2.y))
+                    tl = (;x=min(p1.x, p2.x), y=min(p1.y, p2.y))
                     allowedpt(br) && allowedpt(tl) && begin
-                        allowed_x[(tl.y):(br.y) .- miny .+ 1] |> Map() do xr
+                        @view(allowed_x[(tl.y):(br.y) .- miny .+ 1]) |> Map() do xr
                             issubset((tl.x):(br.x), xr)
                         end |> foldxl(&; init=true)
                     end
@@ -82,8 +90,8 @@ function main_2(filename="d09/sample")
 
 end
 @assert main_2("d09/sample") |> isequal(24)
-#@assert main_2("d09/input") |> !isequal(4613357005)
-#main_2("d09/input") # -> 1501292304
+# @assert main_2("d09/input") |> isequal(1501292304)
+#@time main_2("d09/input")
 
 end
 
