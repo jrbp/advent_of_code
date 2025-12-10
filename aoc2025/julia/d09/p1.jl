@@ -22,6 +22,28 @@ function main_1(filename="d09/sample")
 end
 @assert main_1("d09/sample") |> isequal(50)
 @assert main_1("d09/input") |> isequal(4763932976)
+function merge_nondisjoint(l, r)
+    lstart, lstop = extrema(l)
+    rstart, rstop = extrema(r)
+    range(min(lstart, rstart), max(lstop, rstop))
+end
+function merge_ranges(rin)
+    rs = sort(rin; by=first)
+    maxi = length(rs)
+    res = UnitRange{Int}[]
+    i = 1
+    while i <= maxi
+        thisr = rs[i]
+        nexti = i + 1
+        while ((nexti <= maxi) && !isdisjoint(thisr, rs[nexti]))
+            thisr = merge_nondisjoint(thisr, rs[nexti])
+            nexti += 1
+        end
+        i = nexti
+        push!(res, thisr)
+    end
+    res
+end
 
 function main_2(filename="d09/sample")
     positions = readpos(filename)
@@ -37,21 +59,23 @@ function main_2(filename="d09/sample")
             Map(first) |> extrema |> splat(range)
     end |> collect
     allowedpt(p) = p.x ∈ allowed_x[p.y - miny + 1]
-    # allowedpt_lz(p) = let blines = filter(r -> p.y ∈ last(r), vlines)
-    #     isempty(blines) ? false : p.x ∈ range(extrema(first, blines)...)
-    # end
     Iterators.product(eachindex(positions), eachindex(positions)) |>
         Filter(splat(<)) |>
         Map(x->getindex.(Ref(positions), x)) |>
         # Filter() do (p1, p2)
-        #     # this is still wrong
+        #     # currently as slow as  version below
+        #     # could be best if we could avoid the collect + call
+        #     # to merge_ranges and have vlines fold to left_ok/right_ok
         #     xr = min(p1.x, p2.x):max(p1.x, p2.x)
         #     yr = min(p1.y, p2.y):max(p1.y, p2.y)
-        #     _bl = vlines |> Filter(r->issubset(yr, last(r))) |> Map(first) |> collect
-        #     # println(p1, ", ", p2)
-        #     # println("    ", xr, ", ", yr, ", ", extrema(_bl))
-        #     # println("      ", issubset(xr, range(extrema(_bl)...)))
-        #     !isempty(_bl) && issubset(xr, range(extrema(_bl)...))
+        #     left_vl = vlines |> Filter(v->first(v) <= minimum(xr)) |> Map(last) |> collect
+        #     isempty(left_vl) && return false
+        #     left_ok = merge_ranges(left_vl) |> Map(x->issubset(yr, x)) |> ReduceIf(identity) |> foldxl(|)
+        #     left_ok || return false
+        #     right_vl = vlines |> Filter(v->first(v) >= maximum(xr)) |> Map(last) |> collect
+        #     isempty(right_vl) && return false
+        #     right_ok = merge_ranges(right_vl) |> Map(x->issubset(yr, x)) |> ReduceIf(identity) |> foldxl(|)
+        #     return right_ok
         # end |>
         # Filter() do (p1, p2)
         #     # ~5x slower version of below, doesn't bother with early termination from corners
@@ -90,8 +114,12 @@ function main_2(filename="d09/sample")
 
 end
 @assert main_2("d09/sample") |> isequal(24)
-# @assert main_2("d09/input") |> isequal(1501292304)
-#@time main_2("d09/input")
+@assert main_2("d09/input") |> isequal(1501292304)
+# main_2("d09/sample") |> isequal(24) |> println
+# tt = Threads.@spawn @time main_2("d09/input")
+# fetch(tt)
+#println(main_2("d09/input") == 1501292304)
+@time main_2("d09/input")
 
 end
 
