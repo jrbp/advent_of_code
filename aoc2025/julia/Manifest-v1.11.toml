@@ -2,7 +2,7 @@
 
 julia_version = "1.11.7"
 manifest_format = "2.0"
-project_hash = "82911d7caece3763bb74cd5ebf994124549ef0bd"
+project_hash = "831f32a294058abb30cb53665d79f7f8901535fd"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "MacroTools"]
@@ -185,6 +185,12 @@ deps = ["Accessors", "BangBang", "InitialValues"]
 git-tree-sha1 = "44d32db644e84c75dab479f1bc15ee76a1a3618f"
 uuid = "128add7d-3638-4c79-886c-908ea0c25c34"
 version = "0.2.0"
+
+[[deps.NormalForms]]
+deps = ["LinearAlgebra", "Requires"]
+git-tree-sha1 = "1afd73d4f2864d4c595c1abb976ef8348a182c0e"
+uuid = "109d20d8-9763-411c-9b60-7eb2a068657f"
+version = "0.1.10"
 
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
