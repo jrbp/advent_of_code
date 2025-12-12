@@ -4,6 +4,7 @@ using SparseArrays
 using LinearAlgebra
 using NormalForms: hnfr
 using Combinatorics: multiexponents
+using LLLplus: integerfeasibility
 
 function tosparsemat(btns, nlights)
     is, js = Int[], Int[]
@@ -80,74 +81,47 @@ end
 @assert main_1("d10/sample") |> isequal(7)
 @assert main_1("d10/input") |> isequal(459)
 
-nzerorows(mat) = isempty(mat) ? 0 : sum(x -> all(iszero, x), eachrow(mat))
-
-# function reduce_singular(G, H)
-#     nsq = min(size(H)...)
-#     nzr = nzerorows(H)
-#     iszero(nzr) ? (@view(G[begin:nsq]), @view(H[begin:nsq, begin:nsq])) :
-#     # @assert all(iszero, @view H[(end-nzr+1):end, :])
-#     # @assert all(iszero, G[(end-nzr+1):end])
-#     Hr = @view H[begin:(end-nzr), begin:(end-nzr)]
-#     Gr = @view G[begin:(end-nzr)]
-#     nzerorows(Hr) > 0 ? reduce_singular(Gr, Hr) : (Gr, Hr)
-# end
-# function nozerorows(G, H, Hb)
-#     nzr = nzerorows(H)
-#     #nc = size(H, 1)
-#     # Hr = @view H[begin:(nc-nzr), begin:(nc-nzr)]
-#     # Gr = @view G[begin:(end-nzr)]
-#     Gr = @view G[begin:(end-nzr)]
-#     Hr = @view H[begin:(end-nzr), :]
-#     Hb2 = @view Hb[begin:(end-nzr), :]
-#     Gr, Hr, Hb2
-# end
-function nozerorows(G, H)
-    nzr = nzerorows(H)
-    @assert all(iszero, @view H[(end-nzr+1):end, :])
-    @assert all(iszero, @view G[(end-nzr+1):end])
-    Hr = @view H[begin:(end-nzr), :]
-    Gr = @view G[begin:(end-nzr)]
-    Gr, Hr
+nzerorows(mat) = isempty(mat) ? 0 : begin
+    Iterators.reverse(eachrow(mat)) |> Map(x->all(iszero, x)) |> ReduceIf(!identity) |> foldxl(+)
 end
 
-# function relG_Hinv(G, H, Hb)
-#     nr, nc = size(H)
-#     nz = nzerorows(H)
-#     if iszero(nz) && (nr == nc)
-#         G, H, Hb
-#     elseif !iszero(nz)
-#         Gr, Hr, Hbb = nozerorows(G, H, Hb)
-#         relG_Hinv(Gr, Hr, Hbb)
-#     else
-#         Ht, Hbb = @view(H[:, begin:nr]), hcat(@view(H[:, (nr+1):end]), Hb)
-#         relG_Hinv(G, Ht, Hbb)
-#     end
-# end
+function nozerorows(G, H)
+    zrows = BitVector(map(x->all(iszero, x), eachrow(H)))
+    nzrows = map(x->!x, zrows)
+    @assert all(iszero, @view H[zrows, :])
+    @assert all(iszero, @view G[zrows])
+    Hr = @view H[nzrows, :]
+    Gr = @view G[nzrows]
+    Gr, Hr, zrows
+end
 
-# function _search_int_mateqn(G, Ht, Hb; maxcheck=50)
-#     # search over vr = N^(size(Hb, 2))
-#     # for set of integer vl
-#     # which solve Gr = Ht * vl + Hb * vr
-#     #Gr, Htt, Hbb = relG_Hinv(G, Ht, Hb)
-#     Hbb = Hb
-#     Gr = G
-#     u, s, v = svd(Ht)
-#     Htinv = v * diagm(map(x->abs(x)<1e-8 ? 1 : 1/x, s)) * u'
-#     for n in 0:maxcheck
-#         # multiexponents(sizeof(Hb, 2), n) |>
-#         #     Map(vr-> Hinv * (Gr - Hb * vr))
-#         for vr in multiexponents(size(Hbb, 2), n)
-#             vl = Htinv * (Gr - Hbb * vr)
-#             all(x->(x >= 0) && (abs(round(x) - x)<1e-8), vl) && return round.(Int,[vl..., vr...])
-#         end
-#     end
-#     display(hcat(Ht, Hb))
-#     display(G)
-#     abs.(G)
-# end
+isnatural(x; tol=1e-8) = (x >= 0) && (abs(round(x) - x) < tol)
+isnatural(x::AbstractArray) = all(isnatural, x)
+naturalize(x) = isnatural(x) ? Int.(x) : error("x is not natural: x=$x")
 
-function wide_hnf_solve_int_mateqn(G,H; maxcheck=20)
+function soln_xf(G::AbstractVector{Int}, H)
+    let G=G, H=H
+        nr, nc = size(H)
+        @assert nc >= nr
+        Hl, Hr = (@view(H[:, begin:nr]), @view(H[:, (nr+1):end]))
+        Hlinv = inv(Hl)
+        HlinvG = Hlinv * G
+        HlinvHr = Hlinv * Hr
+        (MapCat(n->multiexponents(size(Hr, 2), n)) ⨟
+         Map(xr->vcat(HlinvG - HlinvHr * xr, xr)) ⨟
+         Filter(isnatural) #⨟ Map(x->Int.(x))
+        )
+    end
+end
+
+function smallernat(l, r)
+    !isnatural(l) ? r : begin
+        sl, sr = sum(l), sum(r)
+        sl < sr ? l : r
+    end
+end
+
+function wide_hnf_solve_int_mateqn(G::AbstractVector{Int},H)
     nr, nc = size(H)
     @assert nc >= nr
     Hl, Hr = (@view(H[:, begin:nr]), @view(H[:, (nr+1):end]))
@@ -164,49 +138,49 @@ function wide_hnf_solve_int_mateqn(G,H; maxcheck=20)
         Hbr = @view(Hr[brange, :])
         Gt = @view(G[trange])
         Gb = @view(G[brange])
-        xr = hnf_solve_int_mateqn(Gb, Hbr)
-        xl = wide_hnf_solve_int_mateqn(Gt .- (Htr * xr), Htl) # missing options? # a mistake?
-        vcat(xl, xr)
+        #xr0 = hnf_solve_int_mateqn(Gb, Hbr)
+        #Main.@infiltrate !isnatural(xr0)
+        # nGl = Gt .- (Htr * xr0)
+        # xl = wide_hnf_solve_int_mateqn(nGl, Htl)
+        # x0 = vcat(xl, xr0)
+        #ns = Int(sum(xr0))
+        #ns = Int(sum(xr0))
+        xres = 0:(2 * sum(abs, G)) |> soln_xf(Gb, Hbr) |> Map() do xr
+            (xr, Gt .- (Htr * xr))
+        end |>
+                Filter(x->all(c->abs(round(c) - c)<1e-8, last(x))) |> # filter noninteger G
+                Map() do (x, G)
+                    x, Int.(G)
+                end |>
+                Map() do (xr, nG)
+                    xl = wide_hnf_solve_int_mateqn(nG, Htl)
+                    vcat(xl, xr)
+                end |>
+                Filter(isnatural) |>
+                foldxl(smallernat; init=-ones(Int, size(H, 2)))
+        isnatural(xres) || error("failed to find positive integer solution for xr")
+        xres
+        # res = foldxl(soln_xf(G, H)'(smallernat),
+        #     0:maxcheck; init=-ones(Int, size(H, 2)))
     else
-        Hlinv = inv(Hl)
-        ## a = Hlinv * G
-        # B = Hlinv * Hr
-        ugh = Vector{Int}[]
-        for n in 0:maxcheck
-            for xr in multiexponents(size(Hr, 2), n)
-                xl = hnf_solve_int_mateqn(Hlinv * (G - Hr * xr), Hl)
-                @assert all(x-> x<1e-8, abs.(H * vcat(xl, xr) .- G))
-                # all(x-> x<1e-8, abs.(H * vcat(xl, xr) .- G)) || begin
-                #     println()
-                #     println("wat?")
-                #     println("G")
-                #     display(G)
-                #     display(Hl * xl + Hr * xr)
-                #     _soln = vcat(xl, xr)
-                #     println("x")
-                #     display(_soln)
-                #     println("H * x")
-                #     display(H * _soln)
-                # end
-                #all(x->(x >= 0) && (abs(round(x) - x)<1e-8), xl) && return round.(Int,vcat(xl, xr))
-                all(x->(x >= 0) && (abs(round(x) - x)<1e-8), xl) && push!(ugh, round.(Int,vcat(xl, xr)))
-            end
-        end
-        if !isempty(ugh) 
-            nps = sum.(ugh)
-            return ugh[argmin(nps)]
-        end
-        println("could not find solution in $(maxcheck)")
-        -ones(Int, size(H, 2))
+        maxcheck = 2 * sum(abs, G)
+        #Main.@infiltrate !isnatural(G)
+        res = foldxl(soln_xf(G, H)'(smallernat),
+            0:maxcheck; init=-ones(Int, size(H, 2)))
+        isnatural(res) || error("search failed to find positive integer solution with $maxcheck, G=$G")
+        res
+        #Main.@infiltrate
+        #-ones(Int, size(H, 2))
     end
 end
 
 function hnf_solve_int_mateqn(G, H)
     nz = nzerorows(H)
     if iszero(nz) && ==(size(H)...)
-        Int.(inv(H) * G)
+        inv(H) * G
+        #isnatural(res) ? Int.(res) : throw(DomainError("G, H does not have natural solution"))
     elseif !iszero(nz)
-        Gr, Hr = nozerorows(G, H)
+        Gr, Hr, zrows = nozerorows(G, H)
         hnf_solve_int_mateqn(Gr, Hr)
     else
         wide_hnf_solve_int_mateqn(G, H)
@@ -222,7 +196,9 @@ function solve_int_mateqn(g, a)
     # where H = U * a, and H is upper triangular
     G, H = hform.U * g, hform.H 
     @assert !iszero(H[1,1]) && all(iszero, @view H[(begin + 1):end, begin]) "pivot is not main diag"
-    soln = hnf_solve_int_mateqn(G, H)
+    soln = hnf_solve_int_mateqn(G, H) |> naturalize
+    #soln = isnatural(_soln) ? Int.(soln) : error("could not find natural solution")
+    #Main.@infiltrate !(g == a * soln)
     @assert g == a * soln
     soln
 end
@@ -240,22 +216,17 @@ function main_2(filename="d10/sample")
 end
 
 macro comment(x...) end
-#
-@assert main_2("d10/sample") |> isequal(33)
- main_2("d10/input")
+#@assert main_2("d10/sample") |> isequal(33)
+#main_2("d10/input")
 #println(main_2("d10/input"))
 
 @comment begin
 
-let machines = parse_line.((eachline("d10/sample")))
-    (lg, as, g) = parse_line(first(eachline("d10/sample")))
-    println()
-    (lg, as, g) = machines[1]
-    println(sum(minpress(g, as)))
-    #res = solve_int_mateqn(g, Matrix{Int}(as))
-    # println(res)
-    # println(sum(res))
-    println()
+let machines = parse_line.((eachline("d10/input")))
+    for (ii, (lg, as, g)) in enumerate(machines)
+        res = solve_int_mateqn(g, Matrix{Int}(as))
+        println(ii, ", ", res)
+    end
 end
 #allinps = parse_line.(eachline(("d10/sample")))
 # #allinps = parse_line.(eachline(("d10/input")))
