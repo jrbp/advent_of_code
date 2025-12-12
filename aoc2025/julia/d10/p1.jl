@@ -138,28 +138,27 @@ function wide_hnf_solve_int_mateqn(G::AbstractVector{Int},H)
         Hbr = @view(Hr[brange, :])
         Gt = @view(G[trange])
         Gb = @view(G[brange])
-        #xr0 = hnf_solve_int_mateqn(Gb, Hbr)
+        
+        xr0 = hnf_solve_int_mateqn(Gb, Hbr) # FIXME: can't just use smallest here, it can lead to invalid solutions
         #Main.@infiltrate !isnatural(xr0)
-        # nGl = Gt .- (Htr * xr0)
-        # xl = wide_hnf_solve_int_mateqn(nGl, Htl)
-        # x0 = vcat(xl, xr0)
-        #ns = Int(sum(xr0))
-        #ns = Int(sum(xr0))
-        xres = 0:(2 * sum(abs, G)) |> soln_xf(Gb, Hbr) |> Map() do xr
-            (xr, Gt .- (Htr * xr))
-        end |>
-                Filter(x->all(c->abs(round(c) - c)<1e-8, last(x))) |> # filter noninteger G
-                Map() do (x, G)
-                    x, Int.(G)
-                end |>
-                Map() do (xr, nG)
-                    xl = wide_hnf_solve_int_mateqn(nG, Htl)
-                    vcat(xl, xr)
-                end |>
-                Filter(isnatural) |>
-                foldxl(smallernat; init=-ones(Int, size(H, 2)))
-        isnatural(xres) || error("failed to find positive integer solution for xr")
-        xres
+        nGl = Gt .- (Htr * xr0)
+        xl = wide_hnf_solve_int_mateqn(nGl, Htl)
+        vcat(xl, xr0)
+        # xres = 0:(2 * sum(abs, G)) |> soln_xf(Gb, Hbr) |> Map() do xr
+        #     (xr, Gt .- (Htr * xr))
+        # end |>
+        #         Filter(x->all(c->abs(round(c) - c)<1e-8, last(x))) |> # filter noninteger G
+        #         Map() do (x, G)
+        #             x, Int.(G)
+        #         end |>
+        #         Map() do (xr, nG)
+        #             xl = wide_hnf_solve_int_mateqn(nG, Htl)
+        #             vcat(xl, xr)
+        #         end |>
+        #         Filter(isnatural) |>
+        #         foldxl(smallernat; init=-ones(Int, size(H, 2)))
+        # isnatural(xres) || error("failed to find positive integer solution for xr")
+        # xres
         # res = foldxl(soln_xf(G, H)'(smallernat),
         #     0:maxcheck; init=-ones(Int, size(H, 2)))
     else
