@@ -32,6 +32,7 @@ function goalafterpress(goal::AbstractVector{<:Bool}, schematic, npresses)
     (!iszero).(mod.(schematic * npresses, 2)) == goal
 end
 
+# unused attempt at brute force
 function goalafterpress(goal::AbstractVector{<:Int}, schematic, npresses)
     res = (schematic * npresses) == goal
     res && println("found soln at: ", npresses)
@@ -63,16 +64,6 @@ function minpress(goal, schematic; maxcheck=20)
     end
     error("takes more than $maxcheck")
 end
-function minpress_pat(goal, schematic; maxcheck=30)
-    nbtns = size(schematic, 2)
-    for npress in Base.OneTo(maxcheck)
-        pat = (multiexponents(nbtns, npress) |>
-         Map(x -> schematic * x) |>
-         ReduceIf(==(goal)) |> foldxl(right))
-        pat == goal && return pat
-    end
-    error("takes more than $maxcheck")
-end
 
 function main_1(filename="d10/sample")
     eachline(filename) |> Map(parse_line) |>
@@ -82,7 +73,7 @@ end
 @assert main_1("d10/input") |> isequal(459)
 
 nzerorows(mat) = isempty(mat) ? 0 : begin
-    Iterators.reverse(eachrow(mat)) |> Map(x->all(iszero, x)) |> ReduceIf(!identity) |> foldxl(+)
+    Iterators.reverse(eachrow(mat)) |> Map(x->all(iszero, x)) |> foldxl(+)
 end
 
 function nozerorows(G, H)
@@ -97,7 +88,7 @@ end
 
 isnatural(x; tol=1e-8) = (x >= 0) && (abs(round(x) - x) < tol)
 isnatural(x::AbstractArray) = all(isnatural, x)
-naturalize(x) = isnatural(x) ? Int.(x) : error("x is not natural: x=$x")
+naturalize(x) = isnatural(x) ? round.(Int, x) : error("x is not natural: x=$x")
 
 function soln_xf(G::AbstractVector{Int}, H)
     let G=G, H=H
@@ -109,7 +100,7 @@ function soln_xf(G::AbstractVector{Int}, H)
         HlinvHr = Hlinv * Hr
         (MapCat(n->multiexponents(size(Hr, 2), n)) ⨟
          Map(xr->vcat(HlinvG - HlinvHr * xr, xr)) ⨟
-         Filter(isnatural) #⨟ Map(x->Int.(x))
+         Filter(isnatural) #⨟ Map(naturalize)
         )
     end
 end
@@ -130,44 +121,46 @@ function wide_hnf_solve_int_mateqn(G::AbstractVector{Int},H)
         # block form
         #   Htl  Htr
         #   0    Hbr
-        trange = 1:(nr-nzhl)
-        brange = (nr-nzhl + 1):nr
-        @assert all(iszero, @view(Hl[brange, :]))
-        Htl = @view(Hl[trange, :])
-        Htr = @view(Hr[trange, :])
-        Hbr = @view(Hr[brange, :])
-        Gt = @view(G[trange])
-        Gb = @view(G[brange])
-        
-        xr0 = hnf_solve_int_mateqn(Gb, Hbr) # FIXME: can't just use smallest here, it can lead to invalid solutions
-        #Main.@infiltrate !isnatural(xr0)
-        nGl = Gt .- (Htr * xr0)
-        xl = wide_hnf_solve_int_mateqn(nGl, Htl)
-        vcat(xl, xr0)
-        # xres = 0:(2 * sum(abs, G)) |> soln_xf(Gb, Hbr) |> Map() do xr
-        #     (xr, Gt .- (Htr * xr))
-        # end |>
-        #         Filter(x->all(c->abs(round(c) - c)<1e-8, last(x))) |> # filter noninteger G
-        #         Map() do (x, G)
-        #             x, Int.(G)
-        #         end |>
-        #         Map() do (xr, nG)
-        #             xl = wide_hnf_solve_int_mateqn(nG, Htl)
-        #             vcat(xl, xr)
-        #         end |>
-        #         Filter(isnatural) |>
-        #         foldxl(smallernat; init=-ones(Int, size(H, 2)))
-        # isnatural(xres) || error("failed to find positive integer solution for xr")
-        # xres
+        # trange = 1:(nr-nzhl)
+        # brange = (nr-nzhl + 1):nr
+        zrows = BitVector(map(x->all(iszero, x), eachrow(Hl)))
+        nzrows = map(x->!x, zrows)
+        Htl = @view Hl[nzrows, :]
+        Htr = @view Hr[nzrows, :]
+        Hbr = @view Hr[zrows, :]
+        @assert all(iszero, @view Hl[zrows, :])
+        Gt = @view G[nzrows]
+        Gb = @view G[zrows]
+        #Main.@infiltrate !all(iszero, @view(Hl[brange, :]))
+        #@assert all(iszero, @view(Hl[brange, :]))
+        # Htl = @view(Hl[trange, :])
+        # Htr = @view(Hr[trange, :])
+        # Hbr = @view(Hr[brange, :])
+        # Gt = @view(G[trange])
+        # Gb = @view(G[brange])
+
+        hnf_solve_int_mateqn(Gb, Hbr) |> Map() do xr
+            xr, (Gt .- (Htr * xr))
+        end |>
+        Filter(x->all(c->abs(round(c) - c)<1e-8, last(x))) |>
+        Filter(x->all(isnatural, first(x))) |>
+        Map() do (x, G)
+            #naturalize(x), Int.(G)
+            x, Int.(G)
+        end |>
+        MapCat() do (xr, nG)
+            hnf_solve_int_mateqn(nG, Htl) |>
+            Map(xl->vcat(xl, xr))
+        end |>
+        Filter(isnatural)# |> Map(naturalize)
+    else
+        maxcheck = 2 * (sum(abs, G) + 1) # FIXME: how many should be checked?
+        #Main.@infiltrate !isnatural(G)
+        0:maxcheck |> soln_xf(G, H)
         # res = foldxl(soln_xf(G, H)'(smallernat),
         #     0:maxcheck; init=-ones(Int, size(H, 2)))
-    else
-        maxcheck = 2 * sum(abs, G)
-        #Main.@infiltrate !isnatural(G)
-        res = foldxl(soln_xf(G, H)'(smallernat),
-            0:maxcheck; init=-ones(Int, size(H, 2)))
-        isnatural(res) || error("search failed to find positive integer solution with $maxcheck, G=$G")
-        res
+        #isnatural(res) || error("search failed to find positive integer solution with $maxcheck, G=$G")
+        #res
         #Main.@infiltrate
         #-ones(Int, size(H, 2))
     end
@@ -176,8 +169,7 @@ end
 function hnf_solve_int_mateqn(G, H)
     nz = nzerorows(H)
     if iszero(nz) && ==(size(H)...)
-        inv(H) * G
-        #isnatural(res) ? Int.(res) : throw(DomainError("G, H does not have natural solution"))
+        1:1 |> Map(_->inv(H) * G) #|> Map(naturalize)
     elseif !iszero(nz)
         Gr, Hr, zrows = nozerorows(G, H)
         hnf_solve_int_mateqn(Gr, Hr)
@@ -195,7 +187,12 @@ function solve_int_mateqn(g, a)
     # where H = U * a, and H is upper triangular
     G, H = hform.U * g, hform.H 
     @assert !iszero(H[1,1]) && all(iszero, @view H[(begin + 1):end, begin]) "pivot is not main diag"
-    soln = hnf_solve_int_mateqn(G, H) |> naturalize
+    #soln = hnf_solve_int_mateqn(G, H) |> naturalize
+    soln = hnf_solve_int_mateqn(G, H) |>
+           foldxl(smallernat; init=-ones(Int, size(H, 2))) |>
+           naturalize
+    isnatural(soln) || error("search failed to find positive integer solution with")
+
     #soln = isnatural(_soln) ? Int.(soln) : error("could not find natural solution")
     #Main.@infiltrate !(g == a * soln)
     @assert g == a * soln
@@ -208,10 +205,9 @@ function minpress_jolt(goal::Vector{Int}, schematic)
 end
 
 function main_2(filename="d10/sample")
-    res = eachline(filename) |> Map(parse_line) |>
-          Map(((_, s, g),) -> minpress_jolt(g, s)) |> foldxl(+)
+    res = eachline(filename) |> Map(parse_line) |> collect |>
+          Map(((_, s, g),) -> minpress_jolt(g, s)) |> foldxt(+)
     res
-
 end
 
 macro comment(x...) end
@@ -222,9 +218,17 @@ macro comment(x...) end
 @comment begin
 
 let machines = parse_line.((eachline("d10/input")))
-    for (ii, (lg, as, g)) in enumerate(machines)
-        res = solve_int_mateqn(g, Matrix{Int}(as))
-        println(ii, ", ", res)
+    (lg, as, g) = machines[28]
+    println(solve_int_mateqn(g, Matrix{Int}(as)))
+end
+let machines = parse_line.((eachline("d10/input")))
+    let s=0
+        for (ii, (lg, as, g)) in enumerate(machines)
+            res = AOC25_10_2.solve_int_mateqn(g, Matrix{Int}(as))
+            s += sum(res)
+            println(ii, ", ", res)
+        end
+        println(s)
     end
 end
 #allinps = parse_line.(eachline(("d10/sample")))
